@@ -33,6 +33,12 @@ jobs:
 
       - name: Build web
         run: npx expo export --platform web
+
+      - name: Fix asset paths for GitHub Pages subdirectory
+        run: |
+          sed -i 's|src="/_expo/|src="/haekel-tracker/_expo/|g' dist/index.html
+          sed -i 's|href="/_expo/|href="/haekel-tracker/_expo/|g' dist/index.html
+          sed -i 's|href="/favicon.ico"|href="/haekel-tracker/favicon.ico"|g' dist/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
