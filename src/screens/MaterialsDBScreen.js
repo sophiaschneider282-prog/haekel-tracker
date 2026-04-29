@@ -412,9 +412,7 @@ export default function MaterialsDBScreen() {
             <TouchableOpacity onPress={save}><Text style={styles.modalSave}>Speichern</Text></TouchableOpacity>
           </View>
 
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-
             {/* Materialtyp-Auswahl */}
             {!editId && !form.materialType && (
               <View style={styles.typePickerBox}>
@@ -611,7 +609,6 @@ export default function MaterialsDBScreen() {
             </View>
             </>}
           </ScrollView>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
 

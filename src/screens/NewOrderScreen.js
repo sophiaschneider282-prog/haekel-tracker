@@ -58,7 +58,6 @@ export default function NewOrderScreen({ navigate }) {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
       <Text style={styles.label}>Auftragsname *</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="z.B. Babymütze rosa" placeholderTextColor={C.textLight} />
@@ -88,6 +87,5 @@ export default function NewOrderScreen({ navigate }) {
         <Text style={styles.btnText}>Auftrag erstellen</Text>
       </TouchableOpacity>
     </ScrollView>
-    </TouchableWithoutFeedback>
   );
 }

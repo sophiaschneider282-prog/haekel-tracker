@@ -455,9 +455,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const statusColors = { offen: C.warning, 'in Arbeit': C.primary, fertig: C.success };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-      <View style={styles.titleRow}>
         <Text style={styles.title}>{order.name}</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity onPress={openNotes} style={[styles.editBtn, { backgroundColor: C.primaryLight }]}>
@@ -997,7 +995,6 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
         </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
-    </TouchableWithoutFeedback>
   );
 }
 

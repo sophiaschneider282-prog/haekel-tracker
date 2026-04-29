@@ -207,8 +207,7 @@ export default function CustomersScreen() {
       {/* Neu/Bearbeiten Modal */}
       <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet">
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={{ flex: 1 }}>
+          <View style={{ flex: 1 }}>
               <View style={[s.modalHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
                 <TouchableOpacity onPress={() => setModalVisible(false)}><Text style={s.cancel}>Abbrechen</Text></TouchableOpacity>
                 <Text style={s.modalTitle}>{editId ? 'Bearbeiten' : 'Neuer Kunde'}</Text>
@@ -225,7 +224,6 @@ export default function CustomersScreen() {
                 <TextInput style={[s.input, { height: 100, textAlignVertical: 'top' }]} value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} placeholder="z.B. mag Pastellfarben..." placeholderTextColor={C.textLight} multiline />
               </ScrollView>
             </View>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
     </View>
