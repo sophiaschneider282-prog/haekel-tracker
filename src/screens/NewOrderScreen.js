@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ScrollView, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { loadOrders, saveOrders } from '../storage';
 import { useTheme } from '../ThemeContext';
+import { parseDeadlineInput } from '../deadlineCalculator';
 
 const makeStyles = (C) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.background, padding: 20 },
@@ -21,12 +22,21 @@ export default function NewOrderScreen({ navigate }) {
   const [description, setDescription] = useState('');
   const [pattern, setPattern] = useState('');
   const [source, setSource] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [deadlineError, setDeadlineError] = useState(null);
 
   const SOURCES = ['Etsy', 'Instagram', 'WhatsApp', 'Persönlich', 'Vinted', 'Sonstiges'];
 
   const create = async () => {
     if (!name.trim()) {
       Alert.alert('Pflichtfeld', 'Bitte einen Auftragsnamen eingeben.');
+      return;
+    }
+    let parsed;
+    try {
+      parsed = parseDeadlineInput(deadline);
+    } catch (e) {
+      setDeadlineError(e.message);
       return;
     }
     const orders = await loadOrders();
@@ -41,6 +51,7 @@ export default function NewOrderScreen({ navigate }) {
       timeSeconds: 0,
       materials: [],
       createdAt: new Date().toISOString(),
+      deadline: parsed,
     };
     await saveOrders([newOrder, ...orders]);
     navigate('list');
@@ -68,6 +79,11 @@ export default function NewOrderScreen({ navigate }) {
       <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={description} onChangeText={setDescription} placeholder="Details zum Auftrag..." multiline placeholderTextColor={C.textLight} />
       <Text style={styles.label}>Anleitung (optional)</Text>
       <TextInput style={styles.input} value={pattern} onChangeText={setPattern} placeholder="Name oder Link z.B. https://ravelry.com/..." placeholderTextColor={C.textLight} autoCapitalize="none" />
+      <Text style={styles.label}>Fälligkeitsdatum (optional)</Text>
+      <TextInput style={styles.input} value={deadline} onChangeText={(v) => { setDeadline(v); setDeadlineError(null); }} placeholder="TT.MM.JJJJ" placeholderTextColor={C.textLight} keyboardType="numbers-and-punctuation" />
+      {deadlineError != null && (
+        <Text style={{ color: C.danger || '#e53935', fontSize: 13, marginTop: 4 }}>{deadlineError}</Text>
+      )}
       <TouchableOpacity style={styles.btn} onPress={create}>
         <Text style={styles.btnText}>Auftrag erstellen</Text>
       </TouchableOpacity>

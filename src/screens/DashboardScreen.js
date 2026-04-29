@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { loadOrders } from '../storage';
+import { loadOrders, loadMaterials } from '../storage';
+import { checkStockLevel, getReorderSuggestion } from '../materialTracker';
 import { useTheme } from '../ThemeContext';
+import { calculateDaysRemaining, formatDeadlineBadge } from '../deadlineCalculator';
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -13,9 +15,13 @@ function formatDuration(seconds) {
 export default function DashboardScreen() {
   const { colors: C } = useTheme();
   const [orders, setOrders] = useState([]);
+  const [materials, setMaterials] = useState([]);
 
   // reload on focus
-  React.useEffect(() => { loadOrders().then(setOrders); }, []);
+  React.useEffect(() => {
+    loadOrders().then(setOrders);
+    loadMaterials().then(setMaterials);
+  }, []);
 
   const finished = orders.filter(o => o.status === 'fertig');
   const inProgress = orders.filter(o => o.status === 'in Arbeit');
@@ -34,6 +40,34 @@ export default function DashboardScreen() {
     matCount[m.name] = (matCount[m.name] || 0) + 1;
   }));
   const topMat = Object.entries(matCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  // Materialkosten diesen Monat
+  const thisMonthKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const thisMonthOrders = orders.filter(o => o.createdAt?.startsWith(thisMonthKey));
+  const totalMatCostThisMonth = thisMonthOrders.reduce((s, o) =>
+    s + (o.materials || []).reduce((a, m) => a + (m.cost || 0), 0), 0);
+  const finishedWithMat = finished.filter(o => (o.materials || []).length > 0);
+  const avgMatCostPerOrder = finishedWithMat.length > 0
+    ? finishedWithMat.reduce((s, o) => s + (o.materials || []).reduce((a, m) => a + (m.cost || 0), 0), 0) / finishedWithMat.length
+    : 0;
+
+  // Deadline-Auswertung
+  const now = new Date();
+  const overdueOrders = orders.filter(o =>
+    o.status !== 'fertig' && o.deadline &&
+    calculateDaysRemaining(o.deadline, now) < 0
+  );
+  const approachingOrders = orders.filter(o =>
+    o.status !== 'fertig' && o.deadline &&
+    calculateDaysRemaining(o.deadline, now) >= 0 &&
+    calculateDaysRemaining(o.deadline, now) <= 3
+  );
+
+  // Niedriger Lagerbestand
+  const lowStockMaterials = materials.filter(m => checkStockLevel(m).low);
 
   // Monatsübersicht (letzte 6 Monate)
   const months = [];
@@ -82,11 +116,35 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* Überfällig */}
+      {overdueOrders.length > 0 && (
+        <View style={{ backgroundColor: '#FFEBEE', borderColor: C.danger, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 }}>
+          <Text style={{ fontWeight: '700', color: C.danger, marginBottom: 6 }}>🚨 Überfällig ({overdueOrders.length})</Text>
+          {overdueOrders.map(o => (
+            <Text key={o.id} style={{ color: C.danger, fontSize: 14 }}>
+              • {o.name} — {formatDeadlineBadge(calculateDaysRemaining(o.deadline, now))}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {/* Bald fällig */}
+      {approachingOrders.length > 0 && (
+        <View style={{ backgroundColor: '#FFF3CD', borderColor: C.warning, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 }}>
+          <Text style={{ fontWeight: '700', color: C.warning, marginBottom: 6 }}>⏰ Bald fällig ({approachingOrders.length})</Text>
+          {approachingOrders.map(o => (
+            <Text key={o.id} style={{ color: C.warning, fontSize: 14 }}>
+              • {o.name} — {formatDeadlineBadge(calculateDaysRemaining(o.deadline, now))}
+            </Text>
+          ))}
+        </View>
+      )}
+
       {/* Monatsübersicht */}
       <Text style={[s.sectionTitle, { color: C.primary }]}>Letzte 6 Monate</Text>
       <View style={[s.chartBox, { backgroundColor: C.card, borderColor: C.border }]}>
-        {months.map(m => (
-          <View key={m.label} style={s.chartRow}>
+        {months.map((m, idx) => (
+          <View key={`${m.label}-${idx}`} style={s.chartRow}>
             <Text style={[s.chartLabel, { color: C.textLight }]}>{m.label}</Text>
             <View style={[s.chartTrack, { backgroundColor: C.border }]}>
               <View style={[s.chartBar, { backgroundColor: C.primary, width: `${(m.revenue / maxRevenue) * 100}%` }]} />
@@ -96,12 +154,43 @@ export default function DashboardScreen() {
         ))}
       </View>
 
+      {/* Materialkosten */}
+      <Text style={[s.sectionTitle, { color: C.primary }]}>Materialkosten</Text>
+      <View style={s.cardRow}>
+        <View style={[s.statCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[s.statValue, { color: C.primary }]}>{totalMatCostThisMonth.toFixed(0)} €</Text>
+          <Text style={[s.statLabel, { color: C.textLight }]}>Materialkosten (Monat)</Text>
+        </View>
+        <View style={[s.statCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[s.statValue, { color: C.primary }]}>{avgMatCostPerOrder.toFixed(0)} €</Text>
+          <Text style={[s.statLabel, { color: C.textLight }]}>Ø pro Auftrag</Text>
+        </View>
+      </View>
+
       {/* Top Materialien */}
+      {lowStockMaterials.length > 0 && (
+        <View style={{ backgroundColor: '#FFF3CD', borderColor: '#FFC107', borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 }}>
+          <Text style={{ fontWeight: '700', color: '#856404', marginBottom: 8 }}>
+            ⚠️ Niedriger Lagerbestand ({lowStockMaterials.length})
+          </Text>
+          {lowStockMaterials.map(m => {
+            const suggestion = getReorderSuggestion(m, orders);
+            const reorderText = suggestion.suggestedQuantity > 0
+              ? ` → Nachbestellen: ${suggestion.suggestedQuantity}`
+              : '';
+            return (
+              <Text key={m.id} style={{ color: '#856404' }}>
+                • {m.name}: {m.stock} / min. {m.minStock}{reorderText}
+              </Text>
+            );
+          })}
+        </View>
+      )}
       {topMat.length > 0 && <>
         <Text style={[s.sectionTitle, { color: C.primary }]}>Meistgenutzte Materialien</Text>
         <View style={[s.listBox, { backgroundColor: C.card, borderColor: C.border }]}>
           {topMat.map(([name, count], i) => (
-            <View key={name} style={[s.listRow, i < topMat.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}>
+            <View key={`${name}-${i}`} style={[s.listRow, i < topMat.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}>
               <Text style={[s.listName, { color: C.text }]}>{name}</Text>
               <Text style={[s.listCount, { color: C.primary }]}>{count}x</Text>
             </View>

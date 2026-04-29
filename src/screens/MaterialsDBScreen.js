@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
-  FlatList, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback
+  FlatList, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback, Image
 } from 'react-native';
-import { loadMaterials, saveMaterials } from '../storage';
+import * as ImagePicker from 'expo-image-picker';
+import { loadMaterials, saveMaterials, loadOrders, saveOrders, savePhotoForMaterial, deletePhotosForMaterial } from '../storage';
+import { getMaterialUsageAnalytics } from '../materialTracker';
 import { useTheme } from '../ThemeContext';
 
 const YARN_TYPES = [
@@ -13,7 +15,7 @@ const YARN_TYPES = [
 
 const DEFAULT_BRANDS = [];
 
-const EMPTY_FORM = { materialType: null, name: '', brand: '', price: '', grams: '', meters: '', color: '', colorNumber: '', yarnTypes: [], quantity: '', stock: '', minStock: '', wishlist: false, shop: '', tags: [] };
+const EMPTY_FORM = { materialType: null, name: '', brand: '', price: '', grams: '', meters: '', color: '', colorNumber: '', yarnTypes: [], quantity: '', stock: '', minStock: '', wishlist: false, shop: '', tags: [], photos: [], orderLinks: [], usageStatistics: { totalUsed: 0, averagePerOrder: 0, lastUsed: null } };
 
 export default function MaterialsDBScreen() {
   const { colors: C } = useTheme();
@@ -31,11 +33,12 @@ export default function MaterialsDBScreen() {
   const [filterColor, setFilterColor] = useState([]);
   const [filterName, setFilterName] = useState([]);
   const [filterModalType, setFilterModalType] = useState(null);
+  const [orderUsage, setOrderUsage] = useState([]);
+  const [usageAnalytics, setUsageAnalytics] = useState(null);
 
   useEffect(() => { loadMaterials().then(setMaterials); }, []);
 
-  const openNew = () => { setForm(EMPTY_FORM); setEditId(null); setModalVisible(true); };
-  const openEdit = (item) => {
+  const openNew = () => { setForm(EMPTY_FORM); setEditId(null); setOrderUsage([]); setUsageAnalytics(null); setModalVisible(true); };  const openEdit = (item) => {
     setForm({
       materialType: item.materialType || (item.grams || item.meters ? 'yarn' : 'item'),
       name: item.name || '',
@@ -51,8 +54,19 @@ export default function MaterialsDBScreen() {
       wishlist: item.wishlist || false,
       shop: item.shop || '',
       tags: item.tags || [],
+      photos: item.photos || [],
+      orderLinks: item.orderLinks || [],
+      usageStatistics: item.usageStatistics || { totalUsed: 0, averagePerOrder: 0, lastUsed: null },
+    });    setEditId(item.id);
+    // Load orders that reference this material
+    loadOrders().then(orders => {
+      const names = orders
+        .filter(o => (o.materials || []).some(m => m.materialId === item.id))
+        .map(o => o.name || o.id);
+      setOrderUsage(names);
+      const analytics = getMaterialUsageAnalytics(item.id, orders);
+      setUsageAnalytics(analytics);
     });
-    setEditId(item.id);
     setModalVisible(true);
   };
 
@@ -78,6 +92,9 @@ export default function MaterialsDBScreen() {
       wishlist: form.wishlist,
       shop: form.shop.trim(),
       tags: form.tags,
+      photos: form.photos,
+      orderLinks: form.orderLinks,
+      usageStatistics: form.usageStatistics,
     };
 
     const updated = editId
@@ -96,8 +113,38 @@ export default function MaterialsDBScreen() {
         const updated = materials.filter(m => m.id !== id);
         await saveMaterials(updated);
         setMaterials(updated);
+        // Delete associated photos
+        await deletePhotosForMaterial(id);
+        // Remove materialId references from all orders
+        const orders = await loadOrders();
+        const updatedOrders = orders.map(o => ({
+          ...o,
+          materials: (o.materials || []).map(m => m.materialId === id ? { ...m, materialId: null } : m),
+        }));
+        await saveOrders(updatedOrders);
       }}
     ]);
+  };
+
+  const pickPhoto = async (useCamera) => {
+    let permResult;
+    if (useCamera) {
+      permResult = await ImagePicker.requestCameraPermissionsAsync();
+    } else {
+      permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    }
+    if (!permResult.granted) {
+      Alert.alert('Berechtigung verweigert', 'Bitte erlaube den Zugriff in den Einstellungen.');
+      return;
+    }
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!result.canceled && result.assets?.[0]) {
+      const matId = editId || 'new_' + Date.now();
+      const storedUri = await savePhotoForMaterial(matId, result.assets[0].uri);
+      setForm(f => ({ ...f, photos: [...f.photos, storedUri] }));
+    }
   };
 
   const filtered = materials.filter(m => {
@@ -308,6 +355,13 @@ export default function MaterialsDBScreen() {
               {item.grams ? <View style={styles.tag}><Text style={styles.tagText}>⚖️ {item.grams}g</Text></View> : null}
               {item.meters ? <View style={styles.tag}><Text style={styles.tagText}>📏 {item.meters}m</Text></View> : null}
             </View>
+            {item.photos?.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                {item.photos.map((uri, idx) => (
+                  <Image key={idx} source={{ uri }} style={{ width: 60, height: 60, borderRadius: 8, marginRight: 6 }} resizeMode="cover" />
+                ))}
+              </ScrollView>
+            )}
           </TouchableOpacity>
         )}
         ListEmptyComponent={
@@ -351,14 +405,13 @@ export default function MaterialsDBScreen() {
       <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet">
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
+            <TouchableOpacity onPress={() => { setModalVisible(false); setForm(EMPTY_FORM); setEditId(null); }}>
               <Text style={styles.modalCancel}>Abbrechen</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>{editId ? 'Material bearbeiten' : 'Neues Material'}</Text>
-            <TouchableOpacity onPress={save}>
-              <Text style={styles.modalSave}>Speichern</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={save}><Text style={styles.modalSave}>Speichern</Text></TouchableOpacity>
           </View>
+
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
 
@@ -487,11 +540,81 @@ export default function MaterialsDBScreen() {
                 {form.wishlist ? '⭐ Auf Wunschliste' : '☆ Zur Wunschliste hinzufügen'}
               </Text>
             </TouchableOpacity>
+
+            {/* Foto hinzufügen */}
+            <Text style={styles.fieldLabel}>📷 Foto hinzufügen</Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[styles.photoBtn, { borderColor: C.border, backgroundColor: C.card, flex: 1 }]}
+                onPress={() => pickPhoto(true)}
+              >
+                <Text style={[styles.photoBtnText, { color: C.text }]}>📷 Kamera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.photoBtn, { borderColor: C.border, backgroundColor: C.card, flex: 1 }]}
+                onPress={() => pickPhoto(false)}
+              >
+                <Text style={[styles.photoBtnText, { color: C.text }]}>🖼 Galerie</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Foto-Galerie im Modal */}
+            {form.photos.length > 0 && (
+              <FlatList
+                horizontal
+                data={form.photos}
+                keyExtractor={(uri, idx) => uri + idx}
+                style={{ marginTop: 12 }}
+                showsHorizontalScrollIndicator={false}
+                renderItem={({ item: uri, index }) => (
+                  <View style={{ marginRight: 8, position: 'relative' }}>
+                    <Image source={{ uri }} style={{ width: 120, height: 120, borderRadius: 10 }} resizeMode="cover" />
+                    <TouchableOpacity
+                      style={styles.photoDeleteBtn}
+                      onPress={() => setForm(f => ({ ...f, photos: f.photos.filter((_, i) => i !== index) }))}
+                    >
+                      <Text style={styles.photoDeleteText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              />
+            )}
+
+            {/* Verwendet in Aufträgen */}
+            <Text style={styles.fieldLabel}>📋 Verwendet in Aufträgen</Text>
+            <View style={[styles.usageBox, { backgroundColor: C.card, borderColor: C.border }]}>
+              {usageAnalytics && (
+                <>
+                  {usageAnalytics.totalUsed > 0 && (
+                    <Text style={{ fontSize: 13, color: C.textLight, marginBottom: 2 }}>
+                      Gesamt verwendet: {usageAnalytics.totalUsed}
+                    </Text>
+                  )}
+                  {usageAnalytics.ordersUsedIn.length > 0 && (
+                    <Text style={{ fontSize: 13, color: C.textLight, marginBottom: 2 }}>
+                      Ø pro Auftrag: {usageAnalytics.averagePerOrder.toFixed(1)}
+                    </Text>
+                  )}
+                  {usageAnalytics.lastUsed && (
+                    <Text style={{ fontSize: 13, color: C.textLight, marginBottom: 6 }}>
+                      Zuletzt: {new Date(usageAnalytics.lastUsed).toLocaleDateString('de-DE')}
+                    </Text>
+                  )}
+                </>
+              )}
+              {orderUsage.length === 0
+                ? <Text style={[styles.usageEmpty, { color: C.textLight }]}>Noch nicht verwendet</Text>
+                : orderUsage.map((name, i) => (
+                  <Text key={i} style={[styles.usageItem, { color: C.text }]}>• {name}</Text>
+                ))
+              }
+            </View>
             </>}
           </ScrollView>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
+
     </View>
   );
 }
@@ -580,4 +703,11 @@ const makeStyles = (C) => StyleSheet.create({
   brandChipActive: { backgroundColor: C.primary, borderColor: C.primary },
   brandChipText: { fontSize: 14, color: C.text },
   brandChipTextActive: { color: '#fff', fontWeight: '700' },
+  photoBtn: { borderWidth: 1, borderRadius: 12, padding: 13, alignItems: 'center' },
+  photoBtnText: { fontSize: 15, fontWeight: '600' },
+  photoDeleteBtn: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  photoDeleteText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  usageBox: { borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 4 },
+  usageEmpty: { fontSize: 14, fontStyle: 'italic' },
+  usageItem: { fontSize: 14, marginBottom: 4 },
 });

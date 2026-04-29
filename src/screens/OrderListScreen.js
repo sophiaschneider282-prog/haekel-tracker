@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react
 import { loadOrders, saveOrders } from '../storage';
 import { useTheme } from '../ThemeContext';
 import { useFocusEffect } from '../hooks/useFocusEffect';
-import SwipeableCard from '../components/SwipeableCard';
+import { calculateDaysRemaining, formatDeadlineBadge, getDeadlineBadgeColor } from '../deadlineCalculator';
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 1) return '0s';
@@ -36,11 +36,25 @@ const makeStyles = (C) => StyleSheet.create({
   fabText: { color: '#fff', fontSize: 32, fontWeight: '300', lineHeight: 36 },
 });
 
+function DeadlineBadge({ deadline, status, colors }) {
+  if (!deadline || status === 'fertig') return null;
+  const days = calculateDaysRemaining(deadline);
+  const label = formatDeadlineBadge(days);
+  const color = getDeadlineBadgeColor(days, colors);
+  if (!label) return null;
+  return (
+    <View style={{ backgroundColor: color, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 6 }}>
+      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>📅 {label}</Text>
+    </View>
+  );
+}
+
 export default function OrderListScreen({ navigate }) {
   const { colors: C } = useTheme();
   const s = makeStyles(C);
   const [orders, setOrders] = useState([]);
   const [filter, setFilter] = useState('alle');
+  const [sortMode, setSortMode] = useState('default');
 
   useFocusEffect(() => { loadOrders().then(setOrders); });
 
@@ -72,6 +86,15 @@ export default function OrderListScreen({ navigate }) {
   };
 
   const filtered = filter === 'alle' ? orders : orders.filter(o => o.status === filter);
+  const sorted = sortMode === 'deadline'
+    ? [...filtered].sort((a, b) => {
+        if (!a.deadline && !b.deadline) return a.name.localeCompare(b.name);
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        if (a.deadline === b.deadline) return a.name.localeCompare(b.name);
+        return a.deadline < b.deadline ? -1 : 1;
+      })
+    : filtered;
   const STATUS_COLOR = { offen: C.warning, 'in Arbeit': C.primary, fertig: C.success };
 
   return (
@@ -87,24 +110,38 @@ export default function OrderListScreen({ navigate }) {
             <Text style={[s.filterText, filter === f && { color: '#fff', fontWeight: '700' }]}>{f}</Text>
           </TouchableOpacity>
         ))}
+        <TouchableOpacity
+          style={[s.filterBtn, { borderColor: C.border, backgroundColor: C.card },
+            sortMode === 'deadline' && { backgroundColor: C.primary, borderColor: C.primary }]}
+          onPress={() => setSortMode(m => m === 'deadline' ? 'default' : 'deadline')}
+        >
+          <Text style={[s.filterText, sortMode === 'deadline' && { color: '#fff', fontWeight: '700' }]}>📅 Deadline</Text>
+        </TouchableOpacity>
       </View>
       <FlatList
-        data={filtered}
+        data={sorted}
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingBottom: 100, paddingTop: 8 }}
         renderItem={({ item }) => {
           const totalMat = (item.materials || []).reduce((sum, m) => sum + m.cost, 0);
           return (
-            <SwipeableCard
-              onDelete={() => deleteOrder(item.id)}
-              onDuplicate={() => duplicateOrder(item)}
+            <TouchableOpacity
+              style={[s.card, { margin: 8, marginBottom: 0 }]}
+              onPress={() => navigate('detail', { orderId: item.id })}
+              onLongPress={() => {
+                Alert.alert(item.name, '', [
+                  { text: 'Duplizieren', onPress: () => duplicateOrder(item) },
+                  { text: 'Löschen', style: 'destructive', onPress: () => deleteOrder(item.id) },
+                  { text: 'Abbrechen', style: 'cancel' },
+                ]);
+              }}
             >
-              <TouchableOpacity style={s.card} onPress={() => navigate('detail', { orderId: item.id })}>
                 <View style={s.cardHeader}>
                   <Text style={s.cardTitle}>{item.name}</Text>
                   <View style={[s.badge, { backgroundColor: STATUS_COLOR[item.status] || C.textLight }]}>
                     <Text style={s.badgeText}>{item.status}</Text>
                   </View>
+                  <DeadlineBadge deadline={item.deadline} status={item.status} colors={C} />
                 </View>
                 {item.customer ? <Text style={s.cardSub}>👤 {item.customer}</Text> : null}
                 {item.source ? <Text style={s.cardSub}>📦 {item.source}</Text> : null}
@@ -118,7 +155,6 @@ export default function OrderListScreen({ navigate }) {
                   <Text style={s.cardMeta}>🧶 {totalMat.toFixed(2)} €</Text>
                 </View>
               </TouchableOpacity>
-            </SwipeableCard>
           );
         }}
         ListEmptyComponent={

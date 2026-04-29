@@ -2,8 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, FlatList, Image, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import Slider from '@react-native-community/slider';
 import * as ImagePicker from 'expo-image-picker';
-import { loadOrders, saveOrders, loadSettings, loadMaterials } from '../storage';
+import { loadOrders, saveOrders, loadSettings, loadMaterials, saveMaterials } from '../storage';
+import * as FileSystem from 'expo-file-system/legacy';
+import { generateTextExport, generatePDFExport, shareFile } from '../exportGenerator';
 import { useTheme } from '../ThemeContext';
+import { calculateLaborCost, generatePriceBreakdown } from '../pricingCalculator';
+import { linkMaterialToOrder, unlinkMaterialFromOrder, checkStockLevel } from '../materialTracker';
+import { useFocusEffect } from '../hooks/useFocusEffect';
+import { parseDeadlineInput, formatISOToDisplay, formatDeadlineBadge, getDeadlineBadgeColor, calculateDaysRemaining } from '../deadlineCalculator';
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -50,6 +56,7 @@ const makeStyles = (C) => StyleSheet.create({
   needleTag: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   needleTagText: { fontSize: 13, fontWeight: '600' },
   logSession: { fontSize: 14, fontWeight: '700', marginBottom: 8 },
+  logItem: { borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1 },
   logRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   logLabel: { fontSize: 14 },
   logValue: { fontSize: 14, fontWeight: '500' },
@@ -125,14 +132,18 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const [sessionStartElapsed, setSessionStartElapsed] = useState(0);
   const [editVisible, setEditVisible] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', customer: '', description: '', pattern: '', source: '', customPrice: '' });
+  const [deadlineError, setDeadlineError] = useState(null);
   const [notesVisible, setNotesVisible] = useState(false);
   const [notesForm, setNotesForm] = useState({ notes: '', needleSize: [] });
   const [matExpanded, setMatExpanded] = useState(true);
+  const [calcExpanded, setCalcExpanded] = useState(true);
+  const [customerView, setCustomerView] = useState(false);
   const [matName, setMatName] = useState('');
   const [matCost, setMatCost] = useState('');
   const [matGrams, setMatGrams] = useState('');
   const [matMeters, setMatMeters] = useState('');
   const [patternCost, setPatternCost] = useState('');
+  const [hourlyWage, setHourlyWage] = useState(0);
   const [dbMaterials, setDbMaterials] = useState([]);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerItem, setPickerItem] = useState(null);
@@ -141,13 +152,17 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    loadSettings().then(s => setMarkup(s.markup));
+    loadSettings().then(s => { setMarkup(s.markup); setHourlyWage(s.hourlyWage || 0); });
     loadMaterials().then(setDbMaterials);
     loadOrders().then(orders => {
       const o = orders.find(x => x.id === orderId);
       if (o) { setOrder(o); setElapsed(o.timeSeconds || 0); setPatternCost(o.patternCost != null ? String(o.patternCost) : ''); }
     });    return () => clearInterval(intervalRef.current);
   }, []);
+
+  useFocusEffect(() => {
+    loadSettings().then(s => { setMarkup(s.markup); setHourlyWage(s.hourlyWage || 0); });
+  });
 
   const persist = async (updated) => {
     const orders = await loadOrders();
@@ -235,7 +250,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
     setPickerVisible(true);
   };
 
-  const confirmFromDB = () => {
+  const confirmFromDB = async () => {
     if (!pickerItem) return;
     const qty = parseFloat(pickerQty) || 1;
     const totalQty = pickerItem.quantity || 1;
@@ -259,14 +274,60 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       id: Date.now().toString(), name, cost,
       grams: pickerMode === 'grams' ? qty : null,
       meters: pickerMode === 'meters' ? qty : null,
+      materialId: pickerItem.id,
+      quantityUsed: qty,
     };
-    persist({ ...order, materials: [...(order.materials || []), newMat] });
+    const updatedOrder = { ...order, materials: [...(order.materials || []), newMat] };
+    await persist(updatedOrder);
+
+    // Update the DB material stock
+    const allMaterials = await loadMaterials();
+    const matIdx = allMaterials.findIndex(m => m.id === pickerItem.id);
+    if (matIdx >= 0) {
+      allMaterials[matIdx] = linkMaterialToOrder(allMaterials[matIdx], qty, order.id);
+      await saveMaterials(allMaterials);
+      setDbMaterials(allMaterials);
+    }
+
     setPickerVisible(false);
     setPickerItem(null);
   };
 
   const deleteMaterial = (matId) => persist({ ...order, materials: order.materials.filter(m => m.id !== matId) });
-  const setStatus = (status) => persist({ ...order, status });
+  const setStatus = async (status) => {
+    if (status === 'fertig') {
+      const linkedMats = (order.materials || []).filter(m => m.materialId);
+      if (linkedMats.length > 0) {
+        Alert.alert(
+          'Lagerbestand wiederherstellen?',
+          'Soll der Lagerbestand der verwendeten Materialien wiederhergestellt werden?',
+          [
+            { text: 'Nein', onPress: () => persist({ ...order, status }) },
+            {
+              text: 'Ja', onPress: async () => {
+                await persist({ ...order, status });
+                const allMaterials = await loadMaterials();
+                let changed = false;
+                for (const mat of linkedMats) {
+                  const idx = allMaterials.findIndex(m => m.id === mat.materialId);
+                  if (idx >= 0) {
+                    allMaterials[idx] = unlinkMaterialFromOrder(allMaterials[idx], order.id);
+                    changed = true;
+                  }
+                }
+                if (changed) {
+                  await saveMaterials(allMaterials);
+                  setDbMaterials(allMaterials);
+                }
+              }
+            },
+          ]
+        );
+        return;
+      }
+    }
+    persist({ ...order, status });
+  };
 
   const openEdit = () => {
     setEditForm({
@@ -276,6 +337,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       pattern: order.pattern || '',
       source: order.source || '',
       customPrice: order.customPrice != null ? String(order.customPrice) : '',
+      deadline: formatISOToDisplay(order.deadline),
     });
     setEditVisible(true);
   };
@@ -283,6 +345,13 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const saveEdit = () => {
     if (!editForm.name.trim()) { Alert.alert('Pflichtfeld', 'Name darf nicht leer sein.'); return; }
     const cp = editForm.customPrice.trim();
+    let parsedDeadline;
+    try {
+      parsedDeadline = parseDeadlineInput(editForm.deadline);
+    } catch (e) {
+      setDeadlineError(e.message);
+      return;
+    }
     persist({
       ...order,
       name: editForm.name.trim(),
@@ -291,7 +360,9 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       pattern: editForm.pattern.trim(),
       source: editForm.source.trim(),
       customPrice: cp ? parseFloat(cp) : null,
+      deadline: parsedDeadline,
     });
+    setDeadlineError(null);
     setEditVisible(false);
   };
 
@@ -344,10 +415,43 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
     ]);
   };
 
+  const handleExport = async () => {
+    try {
+      const settings = await loadSettings();
+      Alert.alert('📤 Auftrag exportieren', '', [
+        {
+          text: 'Als PDF',
+          onPress: async () => {
+            try {
+              const uri = await generatePDFExport(order, settings);
+              await shareFile(uri, 'application/pdf');
+            } catch (e) {
+              Alert.alert('Fehler', e.message);
+            }
+          },
+        },
+        {
+          text: 'Als Text',
+          onPress: async () => {
+            try {
+              const text = generateTextExport(order, settings);
+              const path = FileSystem.documentDirectory + 'export-' + Date.now() + '.txt';
+              await FileSystem.writeAsStringAsync(path, text);
+              await shareFile(path, 'text/plain');
+            } catch (e) {
+              Alert.alert('Fehler', e.message);
+            }
+          },
+        },
+        { text: 'Abbrechen', style: 'cancel' },
+      ]);
+    } catch (e) {
+      Alert.alert('Fehler', e.message);
+    }
+  };
+
   if (!order) return <View style={styles.container}><Text>Lädt...</Text></View>;
 
-  const totalMat = (order.materials || []).reduce((s, m) => s + m.cost, 0);
-  const price = totalMat * (1 + markup / 100);
   const statusColors = { offen: C.warning, 'in Arbeit': C.primary, fertig: C.success };
 
   return (
@@ -361,6 +465,9 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
           </TouchableOpacity>
           <TouchableOpacity onPress={openEdit} style={[styles.editBtn, { backgroundColor: C.primaryLight }]}>
             <Text style={[styles.editBtnText, { color: C.primary }]}>✏️</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleExport} style={[styles.editBtn, { backgroundColor: C.primaryLight }]}>
+            <Text style={[styles.editBtnText, { color: C.primary }]}>📤</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -380,6 +487,12 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
           </Text>
         </TouchableOpacity>
       ) : null}
+
+      {order.deadline && (
+        <Text style={[styles.meta, { color: getDeadlineBadgeColor(calculateDaysRemaining(order.deadline), C) || C.textLight }]}>
+          📅 {formatISOToDisplay(order.deadline)} · {formatDeadlineBadge(calculateDaysRemaining(order.deadline))}
+        </Text>
+      )}
 
       <Text style={styles.sectionTitleStandalone}>Status</Text>
       <View style={styles.row}>
@@ -544,35 +657,97 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       </>}
 
       <View style={styles.calcBox}>
-        <Text style={styles.calcTitle}>Kalkulation</Text>
-        <View style={styles.calcRow}><Text style={styles.calcLabel}>Materialkosten</Text><Text style={styles.calcValue}>{totalMat.toFixed(2)} €</Text></View>
+        <TouchableOpacity
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: calcExpanded ? 10 : 0 }}
+          onPress={() => setCalcExpanded(e => !e)}
+        >
+          <Text style={styles.calcTitle}>Kalkulation</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setCustomerView(v => !v)}
+              style={{ backgroundColor: customerView ? C.primary : C.background, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border }}
+            >
+              <Text style={{ fontSize: 12, color: customerView ? '#fff' : C.textLight, fontWeight: '600' }}>👤 Kundenansicht</Text>
+            </TouchableOpacity>
+            <Text style={[styles.collapseIcon, { color: C.primary }]}>{calcExpanded ? '▲' : '▼'}</Text>
+          </View>
+        </TouchableOpacity>
 
-        {/* Anleitungskosten */}
-        <View style={styles.calcRow}>
-          <Text style={styles.calcLabel}>Anleitung</Text>
-          <TextInput
-            style={[styles.calcInput, { borderColor: C.border, backgroundColor: C.background, color: C.text }]}
-            value={patternCost}
-            onChangeText={v => {
-              setPatternCost(v);
-              const pc = parseFloat(v.replace(',', '.'));
-              persist({ ...order, patternCost: isNaN(pc) ? null : pc });
-            }}
-            placeholder="0.00 €"
-            keyboardType="decimal-pad"
-            placeholderTextColor={C.textLight}
-          />
-        </View>
-
-        <View style={styles.calcRow}><Text style={styles.calcLabel}>Aufschlag ({markup}%)</Text><Text style={styles.calcValue}>+ {((totalMat + (parseFloat(patternCost.replace(',','.')) || 0)) * markup / 100).toFixed(2)} €</Text></View>
-        <View style={[styles.calcRow, styles.calcTotal]}>
-          <Text style={styles.calcTotalLabel}>Verkaufspreis</Text>
-          <Text style={styles.calcTotalValue}>
-            {order.customPrice != null ? order.customPrice.toFixed(2) : ((totalMat + (parseFloat(patternCost.replace(',','.')) || 0)) * (1 + markup / 100)).toFixed(2)} €
-            {order.customPrice != null && <Text style={{ fontSize: 12, fontWeight: '400' }}> (manuell)</Text>}
-          </Text>
-        </View>
+        {calcExpanded && (() => {
+          const laborCost = calculateLaborCost(elapsed, hourlyWage);
+          const pc = parseFloat(patternCost.replace(',', '.')) || 0;
+          const breakdown = generatePriceBreakdown(order.materials || [], pc, laborCost, markup);
+          const total = breakdown.total || 1;
+          return (
+            <>
+              {!customerView && (
+                <>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Materialkosten</Text>
+                    <Text style={styles.calcValue}>{breakdown.materialTotal.toFixed(2)} € <Text style={{ fontSize: 12, color: C.textLight }}>({((breakdown.materialTotal / total) * 100).toFixed(0)}%)</Text></Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Anleitung</Text>
+                    <TextInput
+                      style={[styles.calcInput, { borderColor: C.border, backgroundColor: C.background, color: C.text }]}
+                      value={patternCost}
+                      onChangeText={v => {
+                        setPatternCost(v);
+                        const pc2 = parseFloat(v.replace(',', '.'));
+                        persist({ ...order, patternCost: isNaN(pc2) ? null : pc2 });
+                      }}
+                      placeholder="0.00 €"
+                      keyboardType="decimal-pad"
+                      placeholderTextColor={C.textLight}
+                    />
+                  </View>
+                  {laborCost > 0 && (
+                    <View style={styles.calcRow}>
+                      <Text style={styles.calcLabel}>Arbeitszeit</Text>
+                      <Text style={styles.calcValue}>{breakdown.laborCost.toFixed(2)} € <Text style={{ fontSize: 12, color: C.textLight }}>({((breakdown.laborCost / total) * 100).toFixed(0)}%)</Text></Text>
+                    </View>
+                  )}
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Aufschlag ({markup}%)</Text>
+                    <Text style={styles.calcValue}>+ {breakdown.markupAmount.toFixed(2)} € <Text style={{ fontSize: 12, color: C.textLight }}>({((breakdown.markupAmount / total) * 100).toFixed(0)}%)</Text></Text>
+                  </View>
+                </>
+              )}
+              <View style={[styles.calcRow, styles.calcTotal]}>
+                <Text style={styles.calcTotalLabel}>Verkaufspreis</Text>
+                <Text style={styles.calcTotalValue}>
+                  {order.customPrice != null ? order.customPrice.toFixed(2) : breakdown.total.toFixed(2)} €
+                  {order.customPrice != null && <Text style={{ fontSize: 12, fontWeight: '400' }}> (manuell)</Text>}
+                </Text>
+              </View>
+            </>
+          );
+        })()}
       </View>
+
+      {/* Fehlende Materialien Warnung */}
+      {(() => {
+        const linkedMats = (order.materials || []).filter(m => m.materialId);
+        if (linkedMats.length === 0) return null;
+        const lowItems = linkedMats.filter(m => {
+          const dbMat = dbMaterials.find(d => d.id === m.materialId);
+          return dbMat && checkStockLevel(dbMat).low;
+        });
+        if (lowItems.length === 0) return null;
+        return (
+          <View style={{ backgroundColor: '#fff3cd', borderRadius: 12, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#ffc107' }}>
+            <Text style={{ fontWeight: '700', color: '#856404', marginBottom: 6 }}>⚠️ Materialien fehlen</Text>
+            {lowItems.map(m => {
+              const dbMat = dbMaterials.find(d => d.id === m.materialId);
+              return (
+                <Text key={m.id} style={{ color: '#856404', fontSize: 14 }}>
+                  • {dbMat?.name || m.name} (Bestand: {dbMat?.stock ?? '?'}, Minimum: {dbMat?.minStock ?? '?'})
+                </Text>
+              );
+            })}
+          </View>
+        );
+      })()}
 
       {/* Notizen */}
       {(order.notes || (order.needleSize || []).length > 0) ? <>
@@ -689,6 +864,16 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
             <TextInput style={[styles.editInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]} value={editForm.source} onChangeText={v => setEditForm(f => ({ ...f, source: v }))} placeholder="Oder eigene Eingabe..." placeholderTextColor={C.textLight} />
             <Text style={[styles.editLabel, { color: C.text }]}>Verkaufspreis manuell (€, leer = automatisch)</Text>
             <TextInput style={[styles.editInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]} value={editForm.customPrice} onChangeText={v => setEditForm(f => ({ ...f, customPrice: v }))} placeholder="z.B. 25.00" keyboardType="decimal-pad" />
+            <Text style={[styles.editLabel, { color: C.text }]}>Fälligkeitsdatum (optional)</Text>
+            <TextInput
+              style={[styles.editInput, { borderColor: deadlineError ? (C.danger || '#e53935') : C.border, backgroundColor: C.card, color: C.text }]}
+              value={editForm.deadline}
+              onChangeText={v => { setEditForm(f => ({ ...f, deadline: v })); setDeadlineError(null); }}
+              placeholder="TT.MM.JJJJ"
+              placeholderTextColor={C.textLight}
+              keyboardType="numbers-and-punctuation"
+            />
+            {deadlineError && <Text style={{ color: C.danger || '#e53935', fontSize: 13, marginTop: 4 }}>{deadlineError}</Text>}
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
@@ -705,9 +890,13 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
         <FlatList
           data={dbMaterials}
           keyExtractor={item => item.id}
+          style={{ flex: 1, backgroundColor: C.background }}
           contentContainerStyle={{ padding: 12 }}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.pickerItem} onPress={() => addFromDB(item)}>
+              {item.photos?.length > 0 && (
+                <Image source={{ uri: item.photos[0] }} style={{ width: 40, height: 40, borderRadius: 8, marginRight: 10 }} />
+              )}
               <View style={styles.pickerLeft}>
                 <Text style={styles.pickerName}>{[item.name, item.brand].filter(Boolean).join(' – ')}</Text>
                 {(item.yarnTypes || []).length > 0 && (
