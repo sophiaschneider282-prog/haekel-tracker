@@ -38,7 +38,8 @@
       "shortName": "Häkel",
       "description": "Häkel & Strick Auftrags-Tracker",
       "themeColor": "#7C4DFF",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#ffffff",
+      "publicPath": "/haekel-tracker"
     },
     "extra": {
       "eas": {
