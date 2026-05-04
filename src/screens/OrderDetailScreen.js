@@ -917,18 +917,25 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       </Modal>
 
       {/* Mengen-Modal */}
-      <Modal visible={!!pickerItem} animationType="slide" transparent>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-            <View style={styles.qtyOverlay}>
-              <View style={styles.qtyBox}>
-                <Text style={styles.qtyTitle}>{[pickerItem?.name, pickerItem?.brand].filter(Boolean).join(' – ')}</Text>
-                <Text style={styles.qtySub}>
-                  {[
-                    pickerItem?.quantity && `${pickerItem.quantity}x`,
-                    pickerItem?.grams && `${pickerItem.grams}g`,
-                    pickerItem?.meters && `${pickerItem.meters}m`,
-                  ].filter(Boolean).join(' · ')} · {pickerItem?.price?.toFixed(2)} €
-                </Text>
+      <Modal visible={!!pickerItem} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.pickerHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => setPickerItem(null)}>
+            <Text style={styles.pickerClose}>Abbrechen</Text>
+          </TouchableOpacity>
+          <Text style={styles.pickerTitle}>{[pickerItem?.name, pickerItem?.brand].filter(Boolean).join(' – ')}</Text>
+          <TouchableOpacity onPress={confirmFromDB}>
+            <Text style={[styles.pickerClose, { color: C.primary, fontWeight: '700' }]}>Hinzufügen</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView style={{ flex: 1, backgroundColor: C.background }} contentContainerStyle={{ padding: 24 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.qtyBox}>
+              <Text style={styles.qtySub}>
+                {[
+                  pickerItem?.quantity && `${pickerItem.quantity}x`,
+                  pickerItem?.grams && `${pickerItem.grams}g`,
+                  pickerItem?.meters && `${pickerItem.meters}m`,
+                ].filter(Boolean).join(' · ')} · {pickerItem?.price?.toFixed(2)} €
+              </Text>
 
                 {/* Modus-Auswahl – nur anzeigen was hinterlegt ist */}
                 <View style={styles.modeRow}>
@@ -968,7 +975,6 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
                   value={pickerQty}
                   onChangeText={setPickerQty}
                   keyboardType="decimal-pad"
-                  autoFocus
                   selectTextOnFocus
                 />
                 <Text style={styles.qtyCalc}>
@@ -990,8 +996,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-        </KeyboardAvoidingView>
+        </ScrollView>
       </Modal>
     </ScrollView>
   );
