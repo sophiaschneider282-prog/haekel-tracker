@@ -919,7 +919,6 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
       {/* Mengen-Modal */}
       <Modal visible={!!pickerItem} animationType="slide" transparent>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.qtyOverlay}>
               <View style={styles.qtyBox}>
                 <Text style={styles.qtyTitle}>{[pickerItem?.name, pickerItem?.brand].filter(Boolean).join(' – ')}</Text>
@@ -992,7 +991,6 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
                 </View>
               </View>
             </View>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
