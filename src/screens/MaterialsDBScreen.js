@@ -72,8 +72,8 @@ export default function MaterialsDBScreen() {
 
   const save = async () => {
     if (!form.name.trim() && !form.brand.trim()) { Alert.alert('Pflichtfeld', 'Bitte Name oder Marke eingeben.'); return; }
-    const price = parseFloat(form.price);
-    if (isNaN(price) || price < 0) { Alert.alert('Ungültig', 'Bitte einen gültigen Preis eingeben.'); return; }
+    const price = parseFloat(form.price) || 0;
+    if (price < 0) { Alert.alert('Ungültig', 'Bitte einen gültigen Preis eingeben.'); return; }
 
     const entry = {
       id: editId || Date.now().toString(),
