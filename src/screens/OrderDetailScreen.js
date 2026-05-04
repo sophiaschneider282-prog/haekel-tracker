@@ -974,6 +974,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
                   style={styles.qtyInput}
                   value={pickerQty}
                   onChangeText={setPickerQty}
+                  onChange={(e) => setPickerQty(e.nativeEvent?.text ?? e.target?.value ?? pickerQty)}
                   keyboardType="decimal-pad"
                   selectTextOnFocus
                 />
