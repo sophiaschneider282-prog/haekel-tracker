@@ -149,6 +149,9 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const [pickerItem, setPickerItem] = useState(null);
   const [pickerQty, setPickerQty] = useState('1');
   const [pickerMode, setPickerMode] = useState('quantity');
+  const [timeAdjustVisible, setTimeAdjustVisible] = useState(false);
+  const [timeAdjustH, setTimeAdjustH] = useState('0');
+  const [timeAdjustM, setTimeAdjustM] = useState('0');
   const intervalRef = useRef(null);
 
   useEffect(() => {
@@ -230,6 +233,21 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
         persist({ ...order, timeSeconds: 0 });
       }}
     ]);
+  };
+
+  const openTimeAdjust = () => {
+    setTimeAdjustH(String(Math.floor(elapsed / 3600)));
+    setTimeAdjustM(String(Math.floor((elapsed % 3600) / 60)));
+    setTimeAdjustVisible(true);
+  };
+
+  const saveTimeAdjust = () => {
+    const h = parseInt(timeAdjustH) || 0;
+    const m = parseInt(timeAdjustM) || 0;
+    const newSeconds = h * 3600 + m * 60;
+    setElapsed(newSeconds);
+    persist({ ...order, timeSeconds: newSeconds });
+    setTimeAdjustVisible(false);
   };
 
   const addMaterial = () => {
@@ -554,7 +572,51 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
             <Text style={[styles.resetBtnText, { color: C.textLight }]}>↺ Reset</Text>
           </TouchableOpacity>
         )}
+        {timerState === 'idle' && (
+          <TouchableOpacity onPress={openTimeAdjust} style={styles.timerStatus}>
+            <Text style={[styles.resetBtnText, { color: C.primary }]}>✏️ Zeit anpassen</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Zeit anpassen Modal */}
+      <Modal visible={timeAdjustVisible} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.pickerHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+          <TouchableOpacity onPress={() => setTimeAdjustVisible(false)}>
+            <Text style={styles.pickerClose}>Abbrechen</Text>
+          </TouchableOpacity>
+          <Text style={styles.pickerTitle}>⏱ Zeit anpassen</Text>
+          <TouchableOpacity onPress={saveTimeAdjust}>
+            <Text style={[styles.pickerClose, { color: C.primary, fontWeight: '700' }]}>Speichern</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, backgroundColor: C.background, padding: 24 }}>
+          <Text style={[styles.editLabel, { color: C.textLight, marginBottom: 16 }]}>
+            Wie viel Zeit hast du tatsächlich gearbeitet?
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={[styles.editLabel, { color: C.text }]}>Stunden</Text>
+              <TextInput
+                style={[styles.qtyInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+                value={timeAdjustH}
+                onChangeText={setTimeAdjustH}
+                keyboardType="number-pad"
+              />
+            </View>
+            <Text style={{ fontSize: 32, color: C.text, marginTop: 20 }}>:</Text>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={[styles.editLabel, { color: C.text }]}>Minuten</Text>
+              <TextInput
+                style={[styles.qtyInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+                value={timeAdjustM}
+                onChangeText={setTimeAdjustM}
+                keyboardType="number-pad"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Zeit-Log Modal */}
       <Modal visible={!!showLog} animationType="slide" presentationStyle="pageSheet">
