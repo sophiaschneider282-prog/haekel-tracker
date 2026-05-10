@@ -177,7 +177,10 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
     setSessionStart(now);
     setSessionStartElapsed(elapsed);
     setTimerState('running');
-    intervalRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    const startTime = Date.now() - elapsed * 1000;
+    intervalRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 500);
   };
 
   const pauseTimer = () => {
@@ -188,7 +191,10 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
 
   const resumeTimer = () => {
     setTimerState('running');
-    intervalRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    const startTime = Date.now() - elapsed * 1000;
+    intervalRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 500);
   };
 
   const stopTimer = () => {
@@ -253,22 +259,13 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
   const confirmFromDB = async () => {
     if (!pickerItem) return;
     const qty = parseFloat(pickerQty) || 1;
-    const totalQty = pickerItem.quantity || 1;
-    const totalGrams = pickerItem.grams || 1;
-    const totalMeters = pickerItem.meters || 1;
     const displayName = [pickerItem.name, pickerItem.brand].filter(Boolean).join(' – ');
 
-    let cost, name;
-    if (pickerMode === 'quantity') {
-      cost = parseFloat(((pickerItem.price / totalQty) * qty).toFixed(2));
-      name = pickerItem.quantity ? `${displayName} (${qty}/${totalQty}x)` : displayName;
-    } else if (pickerMode === 'grams') {
-      cost = parseFloat(((pickerItem.price / totalGrams) * qty).toFixed(2));
-      name = `${displayName} (${qty}g)`;
-    } else {
-      cost = parseFloat(((pickerItem.price / totalMeters) * qty).toFixed(2));
-      name = `${displayName} (${qty}m)`;
-    }
+    // Preis × Menge (Preis pro Stück/Einheit)
+    const cost = parseFloat((pickerItem.price * qty).toFixed(2));
+    const name = pickerMode === 'grams' ? `${displayName} (${qty}g)`
+      : pickerMode === 'meters' ? `${displayName} (${qty}m)`
+      : pickerItem.quantity ? `${displayName} (${qty}x)` : displayName;
 
     const newMat = {
       id: Date.now().toString(), name, cost,
@@ -982,9 +979,7 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
                   = {(() => {
                     const q = parseFloat(pickerQty) || 0;
                     const p = pickerItem?.price || 0;
-                    if (pickerMode === 'grams') return ((p / (pickerItem?.grams || 1)) * q).toFixed(2);
-                    if (pickerMode === 'meters') return ((p / (pickerItem?.meters || 1)) * q).toFixed(2);
-                    return ((p / (pickerItem?.quantity || 1)) * q).toFixed(2);
+                    return (p * q).toFixed(2);
                   })()} €
                 </Text>
 
