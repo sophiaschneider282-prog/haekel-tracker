@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Platform } from 'react-native';
 import { ThemeProvider, useTheme } from './src/ThemeContext';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -41,6 +41,8 @@ function Main() {
   return (
     <View style={{ flex: 1, backgroundColor: C.background }}>
       <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+      {/* Web: zentriert mit max-width für Handy-Look */}
+      <View style={Platform.OS === 'web' ? { flex: 1, maxWidth: 480, width: '100%', alignSelf: 'center', overflow: 'hidden' } : { flex: 1 }}>
       <View style={[styles.header, { backgroundColor: C.primary, paddingTop: insets.top + 10 }]}>
         {showBack && tab === 'orders' ? (
           <TouchableOpacity onPress={goBack} style={styles.backBtn}>
@@ -66,6 +68,7 @@ function Main() {
             <Text style={[styles.tabLabel, { color: tab === t.key ? C.primary : C.textLight }, tab === t.key && styles.tabLabelActive]}>{t.label}</Text>
           </TouchableOpacity>
         ))}
+      </View>
       </View>
     </View>
   );

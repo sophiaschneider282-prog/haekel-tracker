@@ -594,21 +594,21 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
           <Text style={[styles.editLabel, { color: C.textLight, marginBottom: 16 }]}>
             Wie viel Zeit hast du tatsächlich gearbeitet?
           </Text>
-          <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={[styles.editLabel, { color: C.text }]}>Stunden</Text>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end', justifyContent: 'center' }}>
+            <View style={{ alignItems: 'center', width: 100 }}>
+              <Text style={{ fontSize: 13, color: C.textLight, marginBottom: 6 }}>Stunden</Text>
               <TextInput
-                style={[styles.qtyInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+                style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 28, fontWeight: '700', color: C.text, backgroundColor: C.card, textAlign: 'center', width: 100 }}
                 value={timeAdjustH}
                 onChangeText={setTimeAdjustH}
                 keyboardType="number-pad"
               />
             </View>
-            <Text style={{ fontSize: 32, color: C.text, marginTop: 20 }}>:</Text>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={[styles.editLabel, { color: C.text }]}>Minuten</Text>
+            <Text style={{ fontSize: 32, color: C.text, paddingBottom: 8 }}>:</Text>
+            <View style={{ alignItems: 'center', width: 100 }}>
+              <Text style={{ fontSize: 13, color: C.textLight, marginBottom: 6 }}>Minuten</Text>
               <TextInput
-                style={[styles.qtyInput, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+                style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 28, fontWeight: '700', color: C.text, backgroundColor: C.card, textAlign: 'center', width: 100 }}
                 value={timeAdjustM}
                 onChangeText={setTimeAdjustM}
                 keyboardType="number-pad"
