@@ -313,31 +313,33 @@ export default function OrderDetailScreen({ navigate, params, showLog, onLogClos
     if (status === 'fertig') {
       const linkedMats = (order.materials || []).filter(m => m.materialId);
       if (linkedMats.length > 0) {
-        Alert.alert(
-          'Lagerbestand wiederherstellen?',
-          'Soll der Lagerbestand der verwendeten Materialien wiederhergestellt werden?',
-          [
-            { text: 'Nein', onPress: () => persist({ ...order, status }) },
-            {
-              text: 'Ja', onPress: async () => {
-                await persist({ ...order, status });
-                const allMaterials = await loadMaterials();
-                let changed = false;
-                for (const mat of linkedMats) {
-                  const idx = allMaterials.findIndex(m => m.id === mat.materialId);
-                  if (idx >= 0) {
-                    allMaterials[idx] = unlinkMaterialFromOrder(allMaterials[idx], order.id);
-                    changed = true;
-                  }
-                }
-                if (changed) {
-                  await saveMaterials(allMaterials);
-                  setDbMaterials(allMaterials);
-                }
-              }
-            },
-          ]
-        );
+        // Web-kompatible Bestätigung
+        const restoreStock = Platform.OS === 'web'
+          ? window.confirm('Lagerbestand wiederherstellen?\nSoll der Lagerbestand der verwendeten Materialien wiederhergestellt werden?')
+          : await new Promise(resolve => Alert.alert(
+              'Lagerbestand wiederherstellen?',
+              'Soll der Lagerbestand der verwendeten Materialien wiederhergestellt werden?',
+              [
+                { text: 'Nein', onPress: () => resolve(false) },
+                { text: 'Ja', onPress: () => resolve(true) },
+              ]
+            ));
+        await persist({ ...order, status });
+        if (restoreStock) {
+          const allMaterials = await loadMaterials();
+          let changed = false;
+          for (const mat of linkedMats) {
+            const idx = allMaterials.findIndex(m => m.id === mat.materialId);
+            if (idx >= 0) {
+              allMaterials[idx] = unlinkMaterialFromOrder(allMaterials[idx], order.id);
+              changed = true;
+            }
+          }
+          if (changed) {
+            await saveMaterials(allMaterials);
+            setDbMaterials(allMaterials);
+          }
+        }
         return;
       }
     }

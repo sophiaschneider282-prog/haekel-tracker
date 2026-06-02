@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   FlatList, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback, Image
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+} from 'react-native';import * as ImagePicker from 'expo-image-picker';
 import { loadMaterials, saveMaterials, loadOrders, saveOrders, savePhotoForMaterial, deletePhotosForMaterial } from '../storage';
 import { getMaterialUsageAnalytics } from '../materialTracker';
 import { useTheme } from '../ThemeContext';
@@ -71,9 +70,15 @@ export default function MaterialsDBScreen() {
   };
 
   const save = async () => {
-    if (!form.name.trim() && !form.brand.trim()) { Alert.alert('Pflichtfeld', 'Bitte Name oder Marke eingeben.'); return; }
+    if (!form.name.trim() && !form.brand.trim()) {
+      if (Platform.OS === 'web') { window.alert('Bitte Name oder Marke eingeben.'); } else { Alert.alert('Pflichtfeld', 'Bitte Name oder Marke eingeben.'); }
+      return;
+    }
     const price = parseFloat(form.price) || 0;
-    if (price < 0) { Alert.alert('Ungültig', 'Bitte einen gültigen Preis eingeben.'); return; }
+    if (price < 0) {
+      if (Platform.OS === 'web') { window.alert('Bitte einen gültigen Preis eingeben.'); } else { Alert.alert('Ungültig', 'Bitte einen gültigen Preis eingeben.'); }
+      return;
+    }
 
     const entry = {
       id: editId || Date.now().toString(),
