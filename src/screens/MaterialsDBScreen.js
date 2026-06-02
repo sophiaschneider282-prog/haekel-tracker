@@ -41,7 +41,7 @@ export default function MaterialsDBScreen() {
     setForm({
       materialType: item.materialType || (item.grams || item.meters ? 'yarn' : 'item'),
       name: item.name || '',
-      brand: item.brand || '', price: String(item.price),
+      brand: item.brand || '', price: item.price != null ? item.price.toFixed(2) : '',
       grams: item.grams ? String(item.grams) : '',
       meters: item.meters ? String(item.meters) : '',
       color: item.color || '',
@@ -510,7 +510,7 @@ export default function MaterialsDBScreen() {
               returnKeyType="done" />
 
             <Text style={styles.fieldLabel}>Preis (€) *</Text>
-            <TextInput style={styles.input} value={form.price} onChangeText={v => setForm(f => ({ ...f, price: v }))} placeholder="z.B. 4.50" keyboardType="decimal-pad" placeholderTextColor={C.textLight} />
+            <TextInput style={styles.input} value={form.price} onChangeText={v => setForm(f => ({ ...f, price: v.replace(',', '.') }))} placeholder="z.B. 4.50" keyboardType="decimal-pad" placeholderTextColor={C.textLight} />
 
             {form.materialType === 'yarn' && (
               <View style={styles.row}>
