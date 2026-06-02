@@ -344,7 +344,9 @@ export default function MaterialsDBScreen() {
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={styles.cardPrice}>{item.price.toFixed(2)} €</Text>
                 {item.grams ? <Text style={[styles.cardColor, { textAlign: 'right' }]}>{(item.price / item.grams * 10).toFixed(2)} €/10g</Text> : null}
+                {item.meters ? <Text style={[styles.cardColor, { textAlign: 'right' }]}>{(item.price / (item.meters / 100)).toFixed(2)} €/100m</Text> : null}
                 {item.quantity && item.materialType === 'item' ? <Text style={[styles.cardColor, { textAlign: 'right' }]}>{(item.price / item.quantity).toFixed(2)} €/Stück</Text> : null}
+                {item.stock != null ? <Text style={[styles.cardColor, { textAlign: 'right', marginTop: 4 }]}>🧮 {(item.price * item.stock).toFixed(2)} € gesamt</Text> : null}
               </View>
             </View>
             <View style={styles.cardTags}>
